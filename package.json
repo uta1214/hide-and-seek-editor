@@ -1,0 +1,158 @@
+{
+  "name": "hide-and-seek-editor",
+  "displayName": "Hide & Seek Editor",
+  "publisher": "uta-orange-1214",
+  "description": "Temporarily hide the right editor group and quickly restore it when needed / 右エディタグループを一時的に隠して、必要な時にすぐ戻す",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/uta1214/hide-and-seek-editor"
+  },
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "keywords": [
+    "editor",
+    "layout",
+    "hide",
+    "toggle",
+    "workspace",
+    "productivity"
+  ],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "hideAndSeekEditor.toggle",
+        "title": "Hide & Seek: Toggle / トグル",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "hideAndSeekEditor.hide",
+        "title": "Hide & Seek: Hide / 隠す",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "hideAndSeekEditor.show",
+        "title": "Hide & Seek: Show / 表示",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "hideAndSeekEditor.peek",
+        "title": "Hide & Seek: Peek / プレビュー表示",
+        "icon": "$(eye)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "hideAndSeekEditor.toggle",
+        "key": "ctrl+alt+h",
+        "mac": "cmd+alt+h"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "hideAndSeekEditor.toggle",
+          "group": "navigation@100",
+          "when": "true"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "hideAndSeekEditor.toggle"
+        },
+        {
+          "command": "hideAndSeekEditor.hide"
+        },
+        {
+          "command": "hideAndSeekEditor.show"
+        },
+        {
+          "command": "hideAndSeekEditor.peek"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Hide & Seek Editor",
+      "properties": {
+        "hideAndSeekEditor.statusBarPosition": {
+          "type": "string",
+          "enum": ["left", "right", "hidden"],
+          "default": "right",
+          "description": "Status bar button position (left / right / hidden) / ステータスバーのボタン位置 (hidden=非表示)"
+        },
+        "hideAndSeekEditor.hideDirection": {
+          "type": "string",
+          "enum": ["right", "left"],
+          "default": "right",
+          "description": "Editor group to hide (right / left) / 隠す対象: right=右側, left=左側"
+        },
+        "hideAndSeekEditor.enablePeekOnHover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable peek preview feature / プレビュー機能を有効化"
+        },
+        "hideAndSeekEditor.peekDuration": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 1000,
+          "maximum": 10000,
+          "description": "Peek preview duration in milliseconds / プレビュー表示時間(ms)"
+        },
+        "hideAndSeekEditor.autoFocusLeft": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically focus the left editor when hiding / 隠す時に自動で左エディタにフォーカス"
+        },
+        "hideAndSeekEditor.showNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notifications on actions / 操作時に通知メッセージを表示"
+        },
+        "hideAndSeekEditor.rememberAcrossSessions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Remember hidden state across VS Code restarts / VS Code 再起動後も隠した状態を保持"
+        },
+        "hideAndSeekEditor.statusBarText": {
+          "type": "string",
+          "default": "右側",
+          "description": "Text shown in the status bar button / ステータスバーに表示するテキスト"
+        },
+        "hideAndSeekEditor.animationDuration": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 500,
+          "description": "Transition delay in milliseconds (0 = disabled) / 切り替えアニメーションの待機時間(ms) 0=無効"
+        },
+        "hideAndSeekEditor.enableButtonAnimation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable button color animation / ボタンの色変化アニメーションを有効化"
+        },
+        "hideAndSeekEditor.animationSpeed": {
+          "type": "number",
+          "default": 150,
+          "minimum": 30,
+          "maximum": 500,
+          "description": "Button animation speed in milliseconds (lower is faster) / ボタンアニメーションの速度(ms) 値が小さいほど速い"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^16.x",
+    "typescript": "^5.0.0"
+  }
+}
