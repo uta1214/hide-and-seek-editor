@@ -2,7 +2,7 @@
   "name": "hide-and-seek-editor",
   "displayName": "Hide & Seek Editor",
   "publisher": "uta-orange-1214",
-  "description": "Temporarily hide the right editor group and quickly restore it when needed / 右エディタグループを一時的に隠して、必要な時にすぐ戻す",
+  "description": "Temporarily hide the right editor group and quickly restore it when needed / 右エディタグループを一時的に隠し、必要な時に即時表示",
   "version": "0.0.1",
   "repository": {
     "type": "git",
@@ -10,9 +10,11 @@
   },
   "icon": "icon.png",
   "engines": {
-    "vscode": "^1.56.0"
+    "vscode": "^1.80.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "keywords": [
     "editor",
     "layout",
@@ -21,7 +23,9 @@
     "workspace",
     "productivity"
   ],
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -81,13 +85,20 @@
       "properties": {
         "hideAndSeekEditor.statusBarPosition": {
           "type": "string",
-          "enum": ["left", "right", "hidden"],
+          "enum": [
+            "left",
+            "right",
+            "hidden"
+          ],
           "default": "right",
           "description": "Status bar button position (left / right / hidden) / ステータスバーのボタン位置 (hidden=非表示)"
         },
         "hideAndSeekEditor.hideDirection": {
           "type": "string",
-          "enum": ["right", "left"],
+          "enum": [
+            "right",
+            "left"
+          ],
           "default": "right",
           "description": "Editor group to hide (right / left) / 隠す対象: right=右側, left=左側"
         },
@@ -120,7 +131,7 @@
         },
         "hideAndSeekEditor.statusBarText": {
           "type": "string",
-          "default": "右側",
+          "default": "right",
           "description": "Text shown in the status bar button / ステータスバーに表示するテキスト"
         },
         "hideAndSeekEditor.animationDuration": {
@@ -151,8 +162,8 @@
     "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
-    "@types/vscode": "^1.80.0",
     "@types/node": "^16.x",
+    "@types/vscode": "^1.80.0",
     "typescript": "^5.0.0"
   }
 }

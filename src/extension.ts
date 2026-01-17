@@ -100,7 +100,7 @@ function getConfig(): Config {
     autoFocusLeft: config.get('autoFocusLeft', true),
     showNotifications: config.get('showNotifications', true),
     rememberAcrossSessions: config.get('rememberAcrossSessions', false),
-    statusBarText: config.get('statusBarText', '右側'),
+    statusBarText: config.get('statusBarText', 'right editor'),
     animationDuration: config.get('animationDuration', 0),
     enableButtonAnimation: config.get('enableButtonAnimation', true),
     animationSpeed: config.get('animationSpeed', 150),
@@ -143,20 +143,20 @@ function updateStatusBar() {
   }
   
   const text = config.statusBarText;
-  const direction = config.hideDirection === 'left' ? '左側' : text;
+  const direction = config.hideDirection === 'left' ? 'left' : text;
   
   if (isHidden) {
-    statusBarItem.text = `$(expand-all) ${direction}を表示`;
+    statusBarItem.text = `$(expand-all) Show ${direction}`;
     statusBarItem.backgroundColor = new vscode.ThemeColor(
       'statusBarItem.warningBackground'
     );
     statusBarItem.tooltip = isPeeking 
-      ? 'プレビュー中...'
-      : `${direction}エディタグループを復元 (右クリックでプレビュー)`;
+      ? 'Peeking...'
+      : `Restore ${direction} editor group (Right-click for preview)`;
   } else {
-    statusBarItem.text = `$(collapse-all) ${direction}を隠す`;
+    statusBarItem.text = `$(collapse-all) Hide ${direction}`;
     statusBarItem.backgroundColor = undefined;
-    statusBarItem.tooltip = `${direction}エディタグループを一時非表示`;
+    statusBarItem.tooltip = `Temporarily hide ${direction} editor group`;
   }
 }
 
@@ -223,8 +223,8 @@ async function hideGroup(context: vscode.ExtensionContext) {
 
   if (targetTabs.length === 0) {
     if (config.showNotifications) {
-      const side = config.hideDirection === 'left' ? '左側' : '右側';
-      vscode.window.showInformationMessage(`${side}にエディタがありません`);
+      const side = config.hideDirection === 'left' ? 'left' : 'right';
+      vscode.window.showInformationMessage(`No editors on the ${side} side`);
     }
     return;
   }
@@ -297,8 +297,8 @@ async function hideGroup(context: vscode.ExtensionContext) {
   updateStatusBar();
   
   if (config.showNotifications) {
-    const side = config.hideDirection === 'left' ? '左側' : '右側';
-    vscode.window.showInformationMessage(`${side}を隠しました (${targetTabs.length}個)`);
+    const side = config.hideDirection === 'left' ? 'left' : 'right';
+    vscode.window.showInformationMessage(`Hidden ${side} side (${targetTabs.length} file${targetTabs.length > 1 ? 's' : ''})`);
   }
 }
 
@@ -307,7 +307,7 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
   
   if (!savedState || savedState.tabs.length === 0) {
     if (config.showNotifications && !isTemporary) {
-      vscode.window.showInformationMessage('復元する状態がありません');
+      vscode.window.showInformationMessage('No saved state to restore');
     }
     return;
   }
@@ -381,8 +381,8 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
     }
 
     if (config.showNotifications) {
-      const side = config.hideDirection === 'left' ? '左側' : '右側';
-      vscode.window.showInformationMessage(`${side}を復元しました (${restoredCount}個)`);
+      const side = config.hideDirection === 'left' ? 'left' : 'right';
+      vscode.window.showInformationMessage(`Restored ${side} side (${restoredCount} file${restoredCount > 1 ? 's' : ''})`);
     }
   }
 }
