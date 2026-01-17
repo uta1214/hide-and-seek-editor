@@ -23,3 +23,9 @@ Thumbs.db
 
 # ===== misc =====
 *.log
+
+# ===== images =====
+*.jpg
+*.jpeg
+*.png
+*.bmp
