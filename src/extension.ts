@@ -21,9 +21,7 @@ interface Config {
   showNotifications: boolean;
   rememberAcrossSessions: boolean;
   statusBarText: string;
-  animationDuration: number;
-  enableButtonAnimation: boolean;
-  animationSpeed: number;
+  statusBarActiveColor: string;
 }
 
 let savedState: EditorState | null = null;
@@ -31,10 +29,6 @@ let statusBarItem: vscode.StatusBarItem;
 let isHidden = false;
 let isPeeking = false;
 let peekTimeout: NodeJS.Timeout | null = null;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 export function activate(context: vscode.ExtensionContext) {
   // 永続化された状態を復元
@@ -101,9 +95,7 @@ function getConfig(): Config {
     showNotifications: config.get('showNotifications', true),
     rememberAcrossSessions: config.get('rememberAcrossSessions', false),
     statusBarText: config.get('statusBarText', 'right editor'),
-    animationDuration: config.get('animationDuration', 0),
-    enableButtonAnimation: config.get('enableButtonAnimation', true),
-    animationSpeed: config.get('animationSpeed', 150),
+    statusBarActiveColor: config.get('statusBarActiveColor', 'yellow'),
   };
 }
 
@@ -124,14 +116,18 @@ function createStatusBarItem() {
   
   statusBarItem = vscode.window.createStatusBarItem(alignment, 100);
   statusBarItem.command = 'hideAndSeekEditor.toggle';
-  
-  // ホバーイベントを設定（プレビュー機能用）
-  if (config.enablePeekOnHover) {
-    // Note: StatusBarItemにはホバーイベントがないため、tooltipで代替
-    // 実際のプレビューはコマンドパレットから実行可能
-  }
-  
   statusBarItem.show();
+}
+
+function getBackgroundColor(colorName: string): vscode.ThemeColor {
+  // 確実に動作する色のマッピング
+  const colorMap: { [key: string]: string } = {
+    'red': 'statusBarItem.errorBackground',
+    'yellow': 'statusBarItem.warningBackground',
+  };
+
+  const color = colorMap[colorName.toLowerCase()] || colorMap['yellow'];
+  return new vscode.ThemeColor(color);
 }
 
 function updateStatusBar() {
@@ -147,9 +143,7 @@ function updateStatusBar() {
   
   if (isHidden) {
     statusBarItem.text = `$(expand-all) Show ${direction}`;
-    statusBarItem.backgroundColor = new vscode.ThemeColor(
-      'statusBarItem.warningBackground'
-    );
+    statusBarItem.backgroundColor = getBackgroundColor(config.statusBarActiveColor);
     statusBarItem.tooltip = isPeeking 
       ? 'Peeking...'
       : `Restore ${direction} editor group (Right-click for preview)`;
@@ -160,51 +154,13 @@ function updateStatusBar() {
   }
 }
 
-async function animateButtonHide() {
-  const config = getConfig();
-  if (!config.enableButtonAnimation || !statusBarItem) {
-    return;
-  }
-
-  const colors = [
-    'statusBarItem.activeBackground',
-    'statusBarItem.prominentBackground',
-    'statusBarItem.warningBackground',
-  ];
-
-  for (const color of colors) {
-    statusBarItem.backgroundColor = new vscode.ThemeColor(color);
-    await sleep(config.animationSpeed);
-  }
-}
-
-async function animateButtonShow() {
-  const config = getConfig();
-  if (!config.enableButtonAnimation || !statusBarItem) {
-    return;
-  }
-
-  const colors = [
-    'statusBarItem.prominentBackground',
-    'statusBarItem.activeBackground',
-  ];
-
-  for (const color of colors) {
-    statusBarItem.backgroundColor = new vscode.ThemeColor(color);
-    await sleep(config.animationSpeed);
-  }
-  
-  // 最後は背景色なしに戻す
-  statusBarItem.backgroundColor = undefined;
-}
-
 async function hideGroup(context: vscode.ExtensionContext) {
   const config = getConfig();
   
   // 全てのタブグループを取得
   const tabGroups = vscode.window.tabGroups.all;
   
-  // 隠す対象のタブを全て収集
+  // 隠す対象のタブを全て収集（通常のファイルのみ）
   const targetTabs: { tab: vscode.Tab; group: vscode.TabGroup }[] = [];
   
   for (const group of tabGroups) {
@@ -214,6 +170,7 @@ async function hideGroup(context: vscode.ExtensionContext) {
     
     if (shouldHide) {
       for (const tab of group.tabs) {
+        // 通常のファイルのみを対象にする（設定、拡張機能画面などは残す）
         if (tab.input instanceof vscode.TabInputText) {
           targetTabs.push({ tab, group });
         }
@@ -235,9 +192,6 @@ async function hideGroup(context: vscode.ExtensionContext) {
   const keepSide = config.hideDirection === 'left' 
     ? editors.find((e: vscode.TextEditor) => e.viewColumn && e.viewColumn > vscode.ViewColumn.One)
     : editors.find((e: vscode.TextEditor) => e.viewColumn === vscode.ViewColumn.One);
-
-  // ボタンアニメーション開始
-  await animateButtonHide();
 
   // 状態を保存
   const tabsToSave: EditorState['tabs'] = [];
@@ -264,15 +218,10 @@ async function hideGroup(context: vscode.ExtensionContext) {
     ) : -1,
   };
 
-  // 永続化
+  // 永続化（非同期だが待たない）
   if (config.rememberAcrossSessions) {
-    await context.globalState.update('savedEditorState', savedState);
-    await context.globalState.update('isHidden', true);
-  }
-
-  // アニメーション待機
-  if (config.animationDuration > 0) {
-    await sleep(config.animationDuration);
+    context.globalState.update('savedEditorState', savedState);
+    context.globalState.update('isHidden', true);
   }
 
   // タブを一気に閉じる（Promise.allで並列実行）
@@ -280,17 +229,15 @@ async function hideGroup(context: vscode.ExtensionContext) {
     targetTabs.map(({ tab }) => vscode.window.tabGroups.close(tab))
   );
 
-  // 残った側にフォーカスを戻す
+  // 残った側にフォーカスを戻す（非同期だが待たない）
   if (config.autoFocusLeft && keepSide) {
-    try {
-      await vscode.window.showTextDocument(keepSide.document, {
-        viewColumn: keepSide.viewColumn,
-        preserveFocus: false,
-        preview: false,
-      });
-    } catch (err) {
+    vscode.window.showTextDocument(keepSide.document, {
+      viewColumn: keepSide.viewColumn,
+      preserveFocus: false,
+      preview: false,
+    }).then(undefined, (err: Error) => {
       console.error('Failed to focus keep side:', err);
-    }
+    });
   }
 
   isHidden = true;
@@ -298,7 +245,7 @@ async function hideGroup(context: vscode.ExtensionContext) {
   
   if (config.showNotifications) {
     const side = config.hideDirection === 'left' ? 'left' : 'right';
-    vscode.window.showInformationMessage(`Hidden ${side} side (${targetTabs.length} file${targetTabs.length > 1 ? 's' : ''})`);
+    vscode.window.showInformationMessage(`Hidden ${side} side (${targetTabs.length} file${targetTabs.length !== 1 ? 's' : ''})`);
   }
 }
 
@@ -313,18 +260,9 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
   }
 
   const currentEditor = vscode.window.activeTextEditor;
+  const fileCount = savedState.tabs.length;
 
-  // ボタンアニメーション開始（永続復元のみ）
-  if (!isTemporary) {
-    await animateButtonShow();
-  }
-
-  // アニメーション待機
-  if (config.animationDuration > 0 && !isTemporary) {
-    await sleep(config.animationDuration);
-  }
-
-  // タブを一気に復元（Promise.allで並列実行）
+  // タブを並列復元（高速化優先、位置情報はベストエフォート）
   const restorePromises = savedState.tabs.map(async (tabData) => {
     try {
       const editor = await vscode.window.showTextDocument(tabData.uri, {
@@ -333,19 +271,18 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
         preview: false,
       });
       
-      // スクロール位置を復元
-      if (tabData.visibleRanges && tabData.visibleRanges.length > 0) {
-        editor.revealRange(tabData.visibleRanges[0], vscode.TextEditorRevealType.AtTop);
-      }
-      
-      // カーソル位置を復元（ただし選択はしない）
+      // カーソル位置を復元（試行）
       if (tabData.selection) {
         editor.selection = new vscode.Selection(tabData.selection.start, tabData.selection.start);
       }
       
+      // スクロール位置を復元（試行）
+      if (tabData.visibleRanges && tabData.visibleRanges.length > 0) {
+        editor.revealRange(tabData.visibleRanges[0], vscode.TextEditorRevealType.InCenter);
+      }
+      
       return true;
     } catch (err) {
-      // エラーはコンソールにのみ出力（ユーザーには見せない）
       console.error(`Failed to restore ${tabData.label}:`, err);
       return false;
     }
@@ -369,7 +306,6 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
 
   // 永続復元の場合のみ状態をクリア
   if (!isTemporary) {
-    const count = savedState.tabs.length;
     isHidden = false;
     savedState = null;
     updateStatusBar();
@@ -382,7 +318,7 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
 
     if (config.showNotifications) {
       const side = config.hideDirection === 'left' ? 'left' : 'right';
-      vscode.window.showInformationMessage(`Restored ${side} side (${restoredCount} file${restoredCount > 1 ? 's' : ''})`);
+      vscode.window.showInformationMessage(`Restored ${side} side (${fileCount} file${fileCount !== 1 ? 's' : ''})`);
     }
   }
 }
@@ -423,6 +359,7 @@ async function peekGroup(context: vscode.ExtensionContext) {
         
         if (shouldHide) {
           for (const tab of group.tabs) {
+            // TabInputTextの場合のみURIでマッチング
             if (tab.input instanceof vscode.TabInputText) {
               const tabUri = tab.input.uri.toString();
               if (tempState.tabs.some(t => t.uri.toString() === tabUri)) {

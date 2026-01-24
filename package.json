@@ -3,7 +3,7 @@
   "displayName": "Hide & Seek Editor",
   "publisher": "uta-orange-1214",
   "description": "Temporarily hide the right editor group and quickly restore it when needed / 右エディタグループを一時的に隠し、必要な時に即時表示",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "repository": {
     "type": "git",
     "url": "https://github.com/uta1214/hide-and-seek-editor"
@@ -134,24 +134,14 @@
           "default": "right",
           "description": "Text shown in the status bar button / ステータスバーに表示するテキスト"
         },
-        "hideAndSeekEditor.animationDuration": {
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "maximum": 500,
-          "description": "Transition delay in milliseconds (0 = disabled) / 切り替えアニメーションの待機時間(ms) 0=無効"
-        },
-        "hideAndSeekEditor.enableButtonAnimation": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable button color animation / ボタンの色変化アニメーションを有効化"
-        },
-        "hideAndSeekEditor.animationSpeed": {
-          "type": "number",
-          "default": 150,
-          "minimum": 30,
-          "maximum": 500,
-          "description": "Button animation speed in milliseconds (lower is faster) / ボタンアニメーションの速度(ms) 値が小さいほど速い"
+        "hideAndSeekEditor.statusBarActiveColor": {
+          "type": "string",
+          "default": "yellow",
+          "enum": [
+            "red",
+            "yellow"
+          ],
+          "description": "Status bar button color when hidden / 隠しているときのボタンの色"
         }
       }
     }
