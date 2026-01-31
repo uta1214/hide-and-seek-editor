@@ -5,8 +5,17 @@ interface EditorState {
   tabs: { 
     uri: vscode.Uri; 
     viewColumn: number;
-    selection?: vscode.Selection;
-    visibleRanges?: readonly vscode.Range[];
+    selection?: {
+      start: { line: number; character: number };
+      end: { line: number; character: number };
+      active: { line: number; character: number };
+    };
+    visibleRanges?: {
+      start: { line: number; character: number };
+      end: { line: number; character: number };
+    }[];
+    // より正確なスクロール位置の保存
+    topVisibleLine?: number;
     label: string;
   }[];
   activeIndex: number;
@@ -160,7 +169,7 @@ async function hideGroup(context: vscode.ExtensionContext) {
   // 全てのタブグループを取得
   const tabGroups = vscode.window.tabGroups.all;
   
-  // 隠す対象のタブを全て収集（通常のファイルのみ）
+  // 隠す対象のタブを全て収集(通常のファイルのみ)
   const targetTabs: { tab: vscode.Tab; group: vscode.TabGroup }[] = [];
   
   for (const group of tabGroups) {
@@ -170,7 +179,7 @@ async function hideGroup(context: vscode.ExtensionContext) {
     
     if (shouldHide) {
       for (const tab of group.tabs) {
-        // 通常のファイルのみを対象にする（設定、拡張機能画面などは残す）
+        // 通常のファイルのみを対象にする(設定、拡張機能画面などは残す)
         if (tab.input instanceof vscode.TabInputText) {
           targetTabs.push({ tab, group });
         }
@@ -186,29 +195,80 @@ async function hideGroup(context: vscode.ExtensionContext) {
     return;
   }
 
-  // 現在のアクティブなエディタとvisibleEditorsを保存
+  // 現在のアクティブなエディタを記憶
   const activeEditor = vscode.window.activeTextEditor;
   const editors = vscode.window.visibleTextEditors;
   const keepSide = config.hideDirection === 'left' 
     ? editors.find((e: vscode.TextEditor) => e.viewColumn && e.viewColumn > vscode.ViewColumn.One)
     : editors.find((e: vscode.TextEditor) => e.viewColumn === vscode.ViewColumn.One);
 
-  // 状態を保存
+  // ステップ1: 全タブを一度アクティブにして位置情報を取得
   const tabsToSave: EditorState['tabs'] = [];
   
   for (const { tab, group } of targetTabs) {
     const tabInput = tab.input as vscode.TabInputText;
-    const correspondingEditor = editors.find(e => 
-      e.document.uri.toString() === tabInput.uri.toString()
-    );
     
-    tabsToSave.push({
-      uri: tabInput.uri,
-      viewColumn: group.viewColumn!,
-      selection: correspondingEditor?.selection,
-      visibleRanges: correspondingEditor?.visibleRanges,
-      label: tab.label,
-    });
+    try {
+      // タブをアクティブにする
+      const editor = await vscode.window.showTextDocument(tabInput.uri, {
+        viewColumn: group.viewColumn,
+        preserveFocus: false,
+        preview: false,
+      });
+      
+      // エディタが完全に初期化されるまで待つ（重要！）
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // 位置情報を取得
+      const selection = {
+        start: {
+          line: editor.selection.start.line,
+          character: editor.selection.start.character
+        },
+        end: {
+          line: editor.selection.end.line,
+          character: editor.selection.end.character
+        },
+        active: {
+          line: editor.selection.active.line,
+          character: editor.selection.active.character
+        }
+      };
+      
+      const visibleRanges = editor.visibleRanges?.map(range => ({
+        start: { line: range.start.line, character: range.start.character },
+        end: { line: range.end.line, character: range.end.character }
+      }));
+      
+      const topVisibleLine = editor.visibleRanges?.[0]?.start.line;
+      
+      console.log(`Saving ${tabInput.uri.fsPath}:`, {
+        topVisibleLine,
+        selectionLine: selection.active.line,
+        hasVisibleRanges: !!visibleRanges && visibleRanges.length > 0
+      });
+      
+      tabsToSave.push({
+        uri: tabInput.uri,
+        viewColumn: group.viewColumn!,
+        selection,
+        visibleRanges,
+        topVisibleLine,
+        label: tab.label,
+      });
+      
+    } catch (err) {
+      console.error(`Failed to get state for ${tabInput.uri.fsPath}:`, err);
+      // エラーの場合もエントリを追加（デフォルト位置）
+      tabsToSave.push({
+        uri: tabInput.uri,
+        viewColumn: group.viewColumn!,
+        selection: undefined,
+        visibleRanges: undefined,
+        topVisibleLine: undefined,
+        label: tab.label,
+      });
+    }
   }
 
   savedState = {
@@ -218,18 +278,42 @@ async function hideGroup(context: vscode.ExtensionContext) {
     ) : -1,
   };
 
-  // 永続化（非同期だが待たない）
+  // 永続化(非同期だが待たない)
   if (config.rememberAcrossSessions) {
     context.globalState.update('savedEditorState', savedState);
     context.globalState.update('isHidden', true);
   }
 
-  // タブを一気に閉じる（Promise.allで並列実行）
+  // タブを閉じる前に、最新のタブグループから閉じるべきタブを取得
+  const currentTabGroups = vscode.window.tabGroups.all;
+  const tabsToClose: vscode.Tab[] = [];
+  
+  for (const group of currentTabGroups) {
+    const shouldHide = config.hideDirection === 'left'
+      ? group.viewColumn === vscode.ViewColumn.One
+      : group.viewColumn !== vscode.ViewColumn.One && group.viewColumn !== undefined;
+    
+    if (shouldHide) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof vscode.TabInputText) {
+          const tabUri = (tab.input as vscode.TabInputText).uri.toString();
+          // 保存したタブのみを閉じる
+          if (tabsToSave.some(t => t.uri.toString() === tabUri)) {
+            tabsToClose.push(tab);
+          }
+        }
+      }
+    }
+  }
+  
+  console.log(`Closing ${tabsToClose.length} tabs`);
+
+  // タブを一気に閉じる(Promise.allで並列実行)
   await Promise.all(
-    targetTabs.map(({ tab }) => vscode.window.tabGroups.close(tab))
+    tabsToClose.map(tab => vscode.window.tabGroups.close(tab))
   );
 
-  // 残った側にフォーカスを戻す（非同期だが待たない）
+  // 残った側にフォーカスを戻す(非同期だが待たない)
   if (config.autoFocusLeft && keepSide) {
     vscode.window.showTextDocument(keepSide.document, {
       viewColumn: keepSide.viewColumn,
@@ -261,34 +345,78 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
 
   const currentEditor = vscode.window.activeTextEditor;
   const fileCount = savedState.tabs.length;
+  
+  // savedStateを定数に保存してnullチェックを回避
+  const state = savedState;
 
-  // タブを並列復元（高速化優先、位置情報はベストエフォート）
-  const restorePromises = savedState.tabs.map(async (tabData) => {
+  // 一つずつ順番にファイルを開いて位置を復元
+  const results: boolean[] = [];
+  
+  for (const tabData of state.tabs) {
     try {
+      // ファイルの存在確認
+      try {
+        await vscode.workspace.fs.stat(tabData.uri);
+      } catch (statErr) {
+        console.error(`File does not exist: ${tabData.uri.fsPath}`);
+        results.push(false);
+        continue;
+      }
+      
+      // ファイルを開く
       const editor = await vscode.window.showTextDocument(tabData.uri, {
         viewColumn: tabData.viewColumn,
         preserveFocus: true,
         preview: false,
       });
       
-      // カーソル位置を復元（試行）
+      console.log(`Opened ${tabData.label}`);
+      
+      // エディタの初期化を待つ
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // カーソル位置を復元
       if (tabData.selection) {
-        editor.selection = new vscode.Selection(tabData.selection.start, tabData.selection.start);
+        const anchor = new vscode.Position(
+          tabData.selection.start.line,
+          tabData.selection.start.character
+        );
+        const active = new vscode.Position(
+          tabData.selection.active.line,
+          tabData.selection.active.character
+        );
+        editor.selection = new vscode.Selection(anchor, active);
+        console.log(`  Set cursor to line ${tabData.selection.active.line}`);
       }
       
-      // スクロール位置を復元（試行）
-      if (tabData.visibleRanges && tabData.visibleRanges.length > 0) {
-        editor.revealRange(tabData.visibleRanges[0], vscode.TextEditorRevealType.InCenter);
+      // スクロール位置を復元
+      if (tabData.topVisibleLine !== undefined) {
+        const topLine = new vscode.Position(tabData.topVisibleLine, 0);
+        editor.revealRange(
+          new vscode.Range(topLine, topLine),
+          vscode.TextEditorRevealType.AtTop
+        );
+        console.log(`  Scrolled to line ${tabData.topVisibleLine}`);
+      } else if (tabData.visibleRanges && tabData.visibleRanges.length > 0) {
+        const range = tabData.visibleRanges[0];
+        const start = new vscode.Position(range.start.line, range.start.character);
+        const end = new vscode.Position(range.end.line, range.end.character);
+        const visibleRange = new vscode.Range(start, end);
+        
+        editor.revealRange(visibleRange, vscode.TextEditorRevealType.AtTop);
+        console.log(`  Scrolled to range ${range.start.line}-${range.end.line}`);
       }
       
-      return true;
+      // 位置が確実に設定されるまで待つ
+      await new Promise(resolve => setTimeout(resolve, 30));
+      
+      results.push(true);
+      
     } catch (err) {
       console.error(`Failed to restore ${tabData.label}:`, err);
-      return false;
+      results.push(false);
     }
-  });
-
-  const results = await Promise.all(restorePromises);
+  }
   const restoredCount = results.filter(r => r).length;
 
   // フォーカスは常に元の場所に戻す
