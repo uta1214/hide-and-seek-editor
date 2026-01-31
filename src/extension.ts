@@ -60,7 +60,6 @@ export function activate(context: vscode.ExtensionContext) {
   const savedPositions = context.globalState.get<Record<string, EditorPositionInfo>>('editorPositions');
   if (savedPositions) {
     editorPositionsMap = new Map(Object.entries(savedPositions));
-    console.log(`Loaded ${editorPositionsMap.size} editor positions from storage`);
   }
   
   // 永続化された状態を復元
@@ -163,7 +162,6 @@ function recordEditorPosition(editor: vscode.TextEditor, context: vscode.Extensi
   savePositionsTimer = setTimeout(() => {
     const positionsObj = Object.fromEntries(editorPositionsMap);
     context.globalState.update('editorPositions', positionsObj);
-    console.log(`Saved ${editorPositionsMap.size} editor positions to storage`);
   }, SAVE_DELAY_MS);
 }
 
@@ -279,11 +277,6 @@ async function hideGroup(context: vscode.ExtensionContext) {
     const positionInfo = editorPositionsMap.get(uri);
     
     if (positionInfo) {
-      console.log(`Using recorded position for ${tabInput.uri.fsPath}:`, {
-        topVisibleLine: positionInfo.topVisibleLine,
-        selectionLine: positionInfo.selection.active.line,
-      });
-      
       tabsToSave.push({
         uri: tabInput.uri,
         viewColumn: group.viewColumn!,
@@ -294,8 +287,6 @@ async function hideGroup(context: vscode.ExtensionContext) {
       });
     } else {
       // 記録がない場合はデフォルト
-      console.log(`No recorded position for ${tabInput.uri.fsPath}, using defaults`);
-      
       tabsToSave.push({
         uri: tabInput.uri,
         viewColumn: group.viewColumn!,
@@ -342,7 +333,6 @@ async function hideGroup(context: vscode.ExtensionContext) {
     }
   }
   
-  console.log(`Closing ${tabsToClose.length} tabs`);
 
   // タブを一気に閉じる(Promise.allで並列実行)
   await Promise.all(
@@ -406,7 +396,6 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
         preview: false,
       });
       
-      console.log(`Opened ${tabData.label}`);
       
       // カーソル位置を復元
       if (tabData.selection) {
@@ -419,7 +408,6 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
           tabData.selection.active.character
         );
         editor.selection = new vscode.Selection(anchor, active);
-        console.log(`  Set cursor to line ${tabData.selection.active.line}`);
       }
       
       // スクロール位置を復元
@@ -429,7 +417,6 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
           new vscode.Range(topLine, topLine),
           vscode.TextEditorRevealType.AtTop
         );
-        console.log(`  Scrolled to line ${tabData.topVisibleLine}`);
       } else if (tabData.visibleRanges && tabData.visibleRanges.length > 0) {
         const range = tabData.visibleRanges[0];
         const start = new vscode.Position(range.start.line, range.start.character);
@@ -437,7 +424,6 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
         const visibleRange = new vscode.Range(start, end);
         
         editor.revealRange(visibleRange, vscode.TextEditorRevealType.AtTop);
-        console.log(`  Scrolled to range ${range.start.line}-${range.end.line}`);
       }
       
       results.push(true);
@@ -459,7 +445,6 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
         preserveFocus: false,
         preview: false,
       });
-      console.log(`Restored focus to previously active file: ${activeTabData.label}`);
     } catch (err) {
       console.error('Failed to restore focus to active file:', err);
     }
