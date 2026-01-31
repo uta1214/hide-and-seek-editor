@@ -6,7 +6,6 @@ yarn-error.log*
 
 # ===== VSCode extension build =====
 out/
-*.vsix
 
 # ===== gtags generated files =====
 GTAGS

@@ -1,6 +1,20 @@
 // src/extension.ts
 import * as vscode from 'vscode';
 
+interface EditorPositionInfo {
+  selection: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+    active: { line: number; character: number };
+  };
+  visibleRanges: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  }[];
+  topVisibleLine: number;
+  viewColumn: number;
+}
+
 interface EditorState {
   tabs: { 
     uri: vscode.Uri; 
@@ -24,8 +38,6 @@ interface EditorState {
 interface Config {
   statusBarPosition: 'left' | 'right' | 'hidden';
   hideDirection: 'right' | 'left';
-  enablePeekOnHover: boolean;
-  peekDuration: number;
   autoFocusLeft: boolean;
   showNotifications: boolean;
   rememberAcrossSessions: boolean;
@@ -36,10 +48,21 @@ interface Config {
 let savedState: EditorState | null = null;
 let statusBarItem: vscode.StatusBarItem;
 let isHidden = false;
-let isPeeking = false;
-let peekTimeout: NodeJS.Timeout | null = null;
+
+// 位置情報を常に記録するマップ（URI -> 位置情報）
+let editorPositionsMap = new Map<string, EditorPositionInfo>();
+// JSON保存のデバウンスタイマー
+let savePositionsTimer: NodeJS.Timeout | null = null;
+const SAVE_DELAY_MS = 5000; // 5秒後に保存
 
 export function activate(context: vscode.ExtensionContext) {
+  // JSONから位置情報を読み込み
+  const savedPositions = context.globalState.get<Record<string, EditorPositionInfo>>('editorPositions');
+  if (savedPositions) {
+    editorPositionsMap = new Map(Object.entries(savedPositions));
+    console.log(`Loaded ${editorPositionsMap.size} editor positions from storage`);
+  }
+  
   // 永続化された状態を復元
   const config = getConfig();
   if (config.rememberAcrossSessions) {
@@ -64,21 +87,6 @@ export function activate(context: vscode.ExtensionContext) {
         await hideGroup(context);
       }
     }),
-    vscode.commands.registerCommand('hideAndSeekEditor.hide', async () => {
-      if (!isHidden) {
-        await hideGroup(context);
-      }
-    }),
-    vscode.commands.registerCommand('hideAndSeekEditor.show', async () => {
-      if (isHidden) {
-        await restoreGroup(context, false);
-      }
-    }),
-    vscode.commands.registerCommand('hideAndSeekEditor.peek', async () => {
-      if (isHidden && !isPeeking) {
-        await peekGroup(context);
-      }
-    }),
     statusBarItem
   );
 
@@ -91,6 +99,16 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+  
+  // エディタの位置情報を常に記録
+  context.subscriptions.push(
+    vscode.window.onDidChangeTextEditorSelection((e: vscode.TextEditorSelectionChangeEvent) => {
+      recordEditorPosition(e.textEditor, context);
+    }),
+    vscode.window.onDidChangeTextEditorVisibleRanges((e: vscode.TextEditorVisibleRangesChangeEvent) => {
+      recordEditorPosition(e.textEditor, context);
+    })
+  );
 }
 
 function getConfig(): Config {
@@ -98,14 +116,55 @@ function getConfig(): Config {
   return {
     statusBarPosition: config.get('statusBarPosition', 'right'),
     hideDirection: config.get('hideDirection', 'right'),
-    enablePeekOnHover: config.get('enablePeekOnHover', true),
-    peekDuration: config.get('peekDuration', 3000),
     autoFocusLeft: config.get('autoFocusLeft', true),
     showNotifications: config.get('showNotifications', true),
     rememberAcrossSessions: config.get('rememberAcrossSessions', false),
-    statusBarText: config.get('statusBarText', 'right editor'),
+    statusBarText: config.get('statusBarText', 'auto'),
     statusBarActiveColor: config.get('statusBarActiveColor', 'yellow'),
   };
+}
+
+function recordEditorPosition(editor: vscode.TextEditor, context: vscode.ExtensionContext) {
+  if (!editor.viewColumn) return;
+  
+  const uri = editor.document.uri.toString();
+  
+  // 位置情報を記録
+  const positionInfo: EditorPositionInfo = {
+    selection: {
+      start: {
+        line: editor.selection.start.line,
+        character: editor.selection.start.character
+      },
+      end: {
+        line: editor.selection.end.line,
+        character: editor.selection.end.character
+      },
+      active: {
+        line: editor.selection.active.line,
+        character: editor.selection.active.character
+      }
+    },
+    visibleRanges: editor.visibleRanges.map(range => ({
+      start: { line: range.start.line, character: range.start.character },
+      end: { line: range.end.line, character: range.end.character }
+    })),
+    topVisibleLine: editor.visibleRanges[0]?.start.line ?? 0,
+    viewColumn: editor.viewColumn
+  };
+  
+  editorPositionsMap.set(uri, positionInfo);
+  
+  // デバウンス付きでJSONに保存
+  if (savePositionsTimer) {
+    clearTimeout(savePositionsTimer);
+  }
+  
+  savePositionsTimer = setTimeout(() => {
+    const positionsObj = Object.fromEntries(editorPositionsMap);
+    context.globalState.update('editorPositions', positionsObj);
+    console.log(`Saved ${editorPositionsMap.size} editor positions to storage`);
+  }, SAVE_DELAY_MS);
 }
 
 function createStatusBarItem() {
@@ -147,20 +206,27 @@ function updateStatusBar() {
     return;
   }
   
-  const text = config.statusBarText;
-  const direction = config.hideDirection === 'left' ? 'left' : text;
+  // statusBarTextの値によって表示を変える
+  let displayText: string;
   
-  if (isHidden) {
-    statusBarItem.text = `$(expand-all) Show ${direction}`;
-    statusBarItem.backgroundColor = getBackgroundColor(config.statusBarActiveColor);
-    statusBarItem.tooltip = isPeeking 
-      ? 'Peeking...'
-      : `Restore ${direction} editor group (Right-click for preview)`;
+  if (config.statusBarText === 'auto') {
+    // auto: アイコン + hideDirectionの値
+    const direction = config.hideDirection;
+    if (isHidden) {
+      displayText = `$(expand-all) Show ${direction}`;
+    } else {
+      displayText = `$(collapse-all) Hide ${direction}`;
+    }
   } else {
-    statusBarItem.text = `$(collapse-all) Hide ${direction}`;
-    statusBarItem.backgroundColor = undefined;
-    statusBarItem.tooltip = `Temporarily hide ${direction} editor group`;
+    // カスタムテキスト: アイコン + 入力内容（空白ならアイコンのみ）
+    const icon = isHidden ? '$(expand-all)' : '$(collapse-all)';
+    const text = config.statusBarText ? ` ${config.statusBarText}` : '';
+    displayText = `${icon}${text}`;
   }
+  
+  statusBarItem.text = displayText;
+  statusBarItem.backgroundColor = isHidden ? getBackgroundColor(config.statusBarActiveColor) : undefined;
+  statusBarItem.tooltip = isHidden ? 'Restore editor group' : 'Temporarily hide editor group';
 }
 
 async function hideGroup(context: vscode.ExtensionContext) {
@@ -202,64 +268,34 @@ async function hideGroup(context: vscode.ExtensionContext) {
     ? editors.find((e: vscode.TextEditor) => e.viewColumn && e.viewColumn > vscode.ViewColumn.One)
     : editors.find((e: vscode.TextEditor) => e.viewColumn === vscode.ViewColumn.One);
 
-  // ステップ1: 全タブを一度アクティブにして位置情報を取得
+  // 記録済みの位置情報を使って状態を保存
   const tabsToSave: EditorState['tabs'] = [];
   
   for (const { tab, group } of targetTabs) {
     const tabInput = tab.input as vscode.TabInputText;
+    const uri = tabInput.uri.toString();
     
-    try {
-      // タブをアクティブにする
-      const editor = await vscode.window.showTextDocument(tabInput.uri, {
-        viewColumn: group.viewColumn,
-        preserveFocus: false,
-        preview: false,
-      });
-      
-      // エディタが完全に初期化されるまで待つ（重要！）
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // 位置情報を取得
-      const selection = {
-        start: {
-          line: editor.selection.start.line,
-          character: editor.selection.start.character
-        },
-        end: {
-          line: editor.selection.end.line,
-          character: editor.selection.end.character
-        },
-        active: {
-          line: editor.selection.active.line,
-          character: editor.selection.active.character
-        }
-      };
-      
-      const visibleRanges = editor.visibleRanges?.map(range => ({
-        start: { line: range.start.line, character: range.start.character },
-        end: { line: range.end.line, character: range.end.character }
-      }));
-      
-      const topVisibleLine = editor.visibleRanges?.[0]?.start.line;
-      
-      console.log(`Saving ${tabInput.uri.fsPath}:`, {
-        topVisibleLine,
-        selectionLine: selection.active.line,
-        hasVisibleRanges: !!visibleRanges && visibleRanges.length > 0
+    // メモリから位置情報を取得
+    const positionInfo = editorPositionsMap.get(uri);
+    
+    if (positionInfo) {
+      console.log(`Using recorded position for ${tabInput.uri.fsPath}:`, {
+        topVisibleLine: positionInfo.topVisibleLine,
+        selectionLine: positionInfo.selection.active.line,
       });
       
       tabsToSave.push({
         uri: tabInput.uri,
         viewColumn: group.viewColumn!,
-        selection,
-        visibleRanges,
-        topVisibleLine,
+        selection: positionInfo.selection,
+        visibleRanges: positionInfo.visibleRanges,
+        topVisibleLine: positionInfo.topVisibleLine,
         label: tab.label,
       });
+    } else {
+      // 記録がない場合はデフォルト
+      console.log(`No recorded position for ${tabInput.uri.fsPath}, using defaults`);
       
-    } catch (err) {
-      console.error(`Failed to get state for ${tabInput.uri.fsPath}:`, err);
-      // エラーの場合もエントリを追加（デフォルト位置）
       tabsToSave.push({
         uri: tabInput.uri,
         viewColumn: group.viewColumn!,
@@ -349,7 +385,7 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
   // savedStateを定数に保存してnullチェックを回避
   const state = savedState;
 
-  // 一つずつ順番にファイルを開いて位置を復元
+  // 一つずつ順番にファイルを開いて位置を復元（待ち時間なし）
   const results: boolean[] = [];
   
   for (const tabData of state.tabs) {
@@ -371,9 +407,6 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
       });
       
       console.log(`Opened ${tabData.label}`);
-      
-      // エディタの初期化を待つ
-      await new Promise(resolve => setTimeout(resolve, 50));
       
       // カーソル位置を復元
       if (tabData.selection) {
@@ -407,9 +440,6 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
         console.log(`  Scrolled to range ${range.start.line}-${range.end.line}`);
       }
       
-      // 位置が確実に設定されるまで待つ
-      await new Promise(resolve => setTimeout(resolve, 30));
-      
       results.push(true);
       
     } catch (err) {
@@ -417,10 +447,24 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
       results.push(false);
     }
   }
+  
   const restoredCount = results.filter(r => r).length;
 
-  // フォーカスは常に元の場所に戻す
-  if (config.autoFocusLeft && currentEditor) {
+  // 元々アクティブだったファイルにフォーカスを戻す
+  if (state.activeIndex >= 0 && state.activeIndex < state.tabs.length) {
+    const activeTabData = state.tabs[state.activeIndex];
+    try {
+      await vscode.window.showTextDocument(activeTabData.uri, {
+        viewColumn: activeTabData.viewColumn,
+        preserveFocus: false,
+        preview: false,
+      });
+      console.log(`Restored focus to previously active file: ${activeTabData.label}`);
+    } catch (err) {
+      console.error('Failed to restore focus to active file:', err);
+    }
+  } else if (config.autoFocusLeft && currentEditor) {
+    // activeIndexが無効な場合は、元の動作（左側にフォーカス）
     try {
       await vscode.window.showTextDocument(currentEditor.document, {
         viewColumn: currentEditor.viewColumn,
@@ -451,71 +495,11 @@ async function restoreGroup(context: vscode.ExtensionContext, isTemporary: boole
   }
 }
 
-async function peekGroup(context: vscode.ExtensionContext) {
-  const config = getConfig();
-  
-  if (!config.enablePeekOnHover || !savedState) {
-    return;
-  }
-
-  isPeeking = true;
-  updateStatusBar();
-
-  // 一時的に復元
-  await restoreGroup(context, true);
-
-  // タイマーをセット
-  if (peekTimeout) {
-    clearTimeout(peekTimeout);
-  }
-
-  peekTimeout = setTimeout(async () => {
-    // プレビュー時間が経過したら再度隠す
-    if (isPeeking && savedState) {
-      // 状態を一時保存
-      const tempState = savedState;
-      
-      // タブグループを取得
-      const tabGroups = vscode.window.tabGroups.all;
-      const tabsToClose: vscode.Tab[] = [];
-      
-      // 隠すべきタブを収集
-      for (const group of tabGroups) {
-        const shouldHide = config.hideDirection === 'left'
-          ? group.viewColumn === vscode.ViewColumn.One
-          : group.viewColumn !== vscode.ViewColumn.One && group.viewColumn !== undefined;
-        
-        if (shouldHide) {
-          for (const tab of group.tabs) {
-            // TabInputTextの場合のみURIでマッチング
-            if (tab.input instanceof vscode.TabInputText) {
-              const tabUri = tab.input.uri.toString();
-              if (tempState.tabs.some(t => t.uri.toString() === tabUri)) {
-                tabsToClose.push(tab);
-              }
-            }
-          }
-        }
-      }
-      
-      // タブを一気に閉じる
-      await Promise.all(
-        tabsToClose.map(tab => vscode.window.tabGroups.close(tab))
-      );
-
-      // 状態を復元
-      savedState = tempState;
-      isPeeking = false;
-      updateStatusBar();
-    }
-  }, config.peekDuration);
-}
-
 export function deactivate() {
   if (statusBarItem) {
     statusBarItem.dispose();
   }
-  if (peekTimeout) {
-    clearTimeout(peekTimeout);
+  if (savePositionsTimer) {
+    clearTimeout(savePositionsTimer);
   }
 }

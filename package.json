@@ -31,23 +31,8 @@
     "commands": [
       {
         "command": "hideAndSeekEditor.toggle",
-        "title": "Hide & Seek: Toggle / トグル",
+        "title": "Hide & Seek: Toggle",
         "icon": "$(collapse-all)"
-      },
-      {
-        "command": "hideAndSeekEditor.hide",
-        "title": "Hide & Seek: Hide / 隠す",
-        "icon": "$(collapse-all)"
-      },
-      {
-        "command": "hideAndSeekEditor.show",
-        "title": "Hide & Seek: Show / 表示",
-        "icon": "$(expand-all)"
-      },
-      {
-        "command": "hideAndSeekEditor.peek",
-        "title": "Hide & Seek: Peek / プレビュー表示",
-        "icon": "$(eye)"
       }
     ],
     "keybindings": [
@@ -68,15 +53,6 @@
       "commandPalette": [
         {
           "command": "hideAndSeekEditor.toggle"
-        },
-        {
-          "command": "hideAndSeekEditor.hide"
-        },
-        {
-          "command": "hideAndSeekEditor.show"
-        },
-        {
-          "command": "hideAndSeekEditor.peek"
         }
       ]
     },
@@ -102,22 +78,10 @@
           "default": "right",
           "description": "Editor group to hide (right / left) / 隠す対象: right=右側, left=左側"
         },
-        "hideAndSeekEditor.enablePeekOnHover": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable peek preview feature / プレビュー機能を有効化"
-        },
-        "hideAndSeekEditor.peekDuration": {
-          "type": "number",
-          "default": 3000,
-          "minimum": 1000,
-          "maximum": 10000,
-          "description": "Peek preview duration in milliseconds / プレビュー表示時間(ms)"
-        },
         "hideAndSeekEditor.autoFocusLeft": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically focus the left editor when hiding / 隠す時に自動で左エディタにフォーカス"
+          "description": "Automatically focus the remaining editor when hiding / 隠す時に自動で残ったエディタにフォーカス"
         },
         "hideAndSeekEditor.showNotifications": {
           "type": "boolean",
@@ -131,8 +95,8 @@
         },
         "hideAndSeekEditor.statusBarText": {
           "type": "string",
-          "default": "right",
-          "description": "Text shown in the status bar button / ステータスバーに表示するテキスト"
+          "default": "auto",
+          "description": "Text shown in the status bar button: 'auto' = icon + hideDirection value, other = icon + custom text (empty = icon only) / ステータスバーに表示するテキスト: 'auto'=アイコン+hideDirectionの値、その他=アイコン+カスタムテキスト（空=アイコンのみ）"
         },
         "hideAndSeekEditor.statusBarActiveColor": {
           "type": "string",
